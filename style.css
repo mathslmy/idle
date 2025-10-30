@@ -1,0 +1,538 @@
+
+/* ========================================
+   整体容器
+======================================== */
+#idle_container {
+  --idle-primary: #1a1a1a;
+  --idle-success: #28a745;
+  --idle-warning: #ffc107;
+  --idle-danger: #dc3545;
+  --idle-border: 1px solid var(--grey-3, #2c2c2c);
+  --idle-bg: var(--black-2, #141414);
+  --idle-card-bg: var(--black-1, #1a1a1a);
+  --idle-text: var(--text-1, #e8e8e8);
+  --idle-muted: var(--text-2, #bdbdbd);
+  --idle-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --idle-radius: 8px;
+  --idle-spacing: 12px;
+
+  color: var(--idle-text);
+  font-size: 14px;
+  max-width: 100%;
+  padding: 0 8px;
+}
+
+/* ========================================
+   主折叠面板
+======================================== */
+#idle_container > details {
+  border: var(--idle-border);
+  border-radius: var(--idle-radius);
+  background: var(--idle-card-bg);
+  padding: 0;
+  margin-bottom: 12px;
+  box-shadow: var(--idle-shadow);
+  overflow: hidden;
+}
+
+#idle_container > details > summary {
+  cursor: pointer;
+  padding: 16px 20px;
+  font-weight: 700;
+  font-size: 16px;
+  background: linear-gradient(135deg, var(--idle-primary) 0%, #357abd 100%);
+  color: white;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+#idle_container > details > summary:hover {
+  background: linear-gradient(135deg, #5a9fe8 0%, #4589cd 100%);
+}
+
+#idle_container > details > summary::before {
+  content: '';
+  font-size: 18px;
+}
+
+#idle_container > details[open] > summary {
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 内容区域 */
+#idle_container > details > *:not(summary) {
+  padding: var(--idle-spacing);
+}
+
+/* ========================================
+   卡片式 fieldset
+======================================== */
+#idle_container fieldset {
+  border: var(--idle-border);
+  border-radius: var(--idle-radius);
+  margin: 0 0 var(--idle-spacing) 0;
+  padding: 14px 16px;
+  background: var(--idle-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+#idle_container fieldset:last-child {
+  margin-bottom: 0;
+}
+
+#idle_container legend {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 8px;
+  color: var(--idle-primary);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* 特殊边框颜色 */
+#idle_container fieldset[style*="border: 2px solid #4a90e2"] {
+  border-color: var(--idle-primary);
+  background: rgba(74, 144, 226, 0.05);
+}
+
+/* ========================================
+   嵌套 fieldset
+======================================== */
+#idle_container fieldset fieldset {
+  background: var(--idle-card-bg);
+  padding: 12px;
+  margin-top: 10px;
+}
+
+#idle_container fieldset fieldset legend {
+  font-size: 12px;
+  color: var(--idle-muted);
+}
+
+/* ========================================
+   响应式网格布局
+======================================== */
+#idle_container .form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+  #idle_container .form-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  #idle_container .form-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ========================================
+   表单元素
+======================================== */
+#idle_container label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#idle_container label > span:first-child {
+  color: var(--idle-muted);
+}
+
+/* 单行 label（checkbox/radio） */
+#idle_container label.inline-label {
+  flex-direction: row;
+  align-items: center;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+#idle_container label.inline-label input[type="checkbox"],
+#idle_container label.inline-label input[type="radio"] {
+  width: auto;
+  margin: 0;
+}
+
+/* 输入框 */
+#idle_container input[type="text"],
+#idle_container input[type="password"],
+#idle_container input[type="number"],
+#idle_container input[type="time"],
+#idle_container input[type="datetime-local"],
+#idle_container input[type="range"],
+#idle_container select,
+#idle_container textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: var(--idle-border);
+  background: var(--idle-card-bg);
+  color: var(--idle-text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#idle_container input:focus,
+#idle_container select:focus,
+#idle_container textarea:focus {
+  border-color: var(--idle-primary);
+  box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+}
+
+#idle_container textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+/* Range slider */
+#idle_container input[type="range"] {
+  padding: 0;
+  height: 6px;
+  cursor: pointer;
+}
+
+/* 小文本提示 */
+#idle_container small {
+  display: block;
+  margin-top: 4px;
+  color: var(--idle-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ========================================
+   按钮
+======================================== */
+#idle_container button {
+  appearance: none;
+  border: var(--idle-border);
+  background: var(--idle-bg);
+  color: var(--idle-text);
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
+  margin-right: 8px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+#idle_container button:hover {
+  background: var(--idle-card-bg);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+#idle_container button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* 按钮颜色变体 */
+#idle_container button[style*="background: #28a745"],
+#idle_container button[id*="sync"] {
+  background: var(--idle-success) !important;
+  color: white;
+  border-color: var(--idle-success);
+}
+
+#idle_container button[style*="background: #28a745"]:hover,
+#idle_container button[id*="sync"]:hover {
+  background: #218838 !important;
+  border-color: #1e7e34;
+}
+
+/* ========================================
+   列表容器（正则、世界书）
+======================================== */
+#idle_regex_list,
+#idle_worldbook_list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: var(--idle-border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--idle-card-bg);
+  margin-top: 8px;
+}
+
+#idle_regex_list:empty::before,
+#idle_worldbook_list:empty::before {
+  content: '暂无数据';
+  display: block;
+  text-align: center;
+  padding: 20px;
+  color: var(--idle-muted);
+  font-size: 13px;
+}
+
+/* 列表项 */
+#idle_regex_list > div,
+#idle_worldbook_list > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  margin-bottom: 6px;
+  background: var(--idle-bg);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+#idle_regex_list > div:last-child,
+#idle_worldbook_list > div:last-child {
+  margin-bottom: 0;
+}
+
+#idle_regex_list > div:hover,
+#idle_worldbook_list > div:hover {
+  border-color: var(--idle-primary);
+}
+
+#idle_regex_list input[type="checkbox"],
+#idle_worldbook_list input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+#idle_regex_list span,
+#idle_worldbook_list span {
+  flex: 1;
+  word-break: break-all;
+  line-height: 1.4;
+  font-size: 13px;
+}
+
+#idle_regex_list button,
+#idle_worldbook_list button {
+  padding: 4px 10px;
+  font-size: 12px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* ========================================
+   Schedule 条目
+======================================== */
+.schedule-entry {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  margin-bottom: 8px;
+  background: var(--idle-bg);
+  border-radius: 6px;
+  border: 1px solid var(--idle-border);
+}
+
+.schedule-entry input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.schedule-entry input[type="text"],
+.schedule-entry input[type="time"],
+.schedule-entry input[type="datetime-local"] {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.schedule-entry button {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--idle-danger);
+  color: white;
+  border-color: var(--idle-danger);
+}
+
+.schedule-entry button:hover {
+  background: #c82333;
+  border-color: #bd2130;
+}
+
+/* 移动端响应式 */
+@media (max-width: 640px) {
+  .schedule-entry {
+    grid-template-columns: auto 1fr;
+    gap: 6px;
+  }
+  
+  .schedule-entry input[type="text"],
+  .schedule-entry input[type="time"],
+  .schedule-entry input[type="datetime-local"] {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ========================================
+   状态显示
+======================================== */
+#idle_backend_status {
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--idle-card-bg);
+  border-left: 4px solid var(--idle-muted);
+  font-weight: 600;
+}
+
+#idle_backend_status[style*="color: #4a90e2"] {
+  border-left-color: var(--idle-primary);
+}
+
+.idle-next-time {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--idle-card-bg);
+  border: var(--idle-border);
+  border-left: 4px solid var(--idle-primary);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--idle-text);
+}
+
+.idle-next-time span {
+  font-weight: 700;
+  color: var(--idle-primary);
+}
+
+/* ========================================
+   输入组（input + button）
+======================================== */
+#idle_container .input-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+#idle_container .input-group input {
+  flex: 1;
+  margin: 0;
+}
+
+#idle_container .input-group button {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* ========================================
+   滚动条美化
+======================================== */
+#idle_regex_list::-webkit-scrollbar,
+#idle_worldbook_list::-webkit-scrollbar {
+  width: 8px;
+}
+
+#idle_regex_list::-webkit-scrollbar-track,
+#idle_worldbook_list::-webkit-scrollbar-track {
+  background: var(--idle-bg);
+  border-radius: 4px;
+}
+
+#idle_regex_list::-webkit-scrollbar-thumb,
+#idle_worldbook_list::-webkit-scrollbar-thumb {
+  background: var(--idle-muted);
+  border-radius: 4px;
+}
+
+#idle_regex_list::-webkit-scrollbar-thumb:hover,
+#idle_worldbook_list::-webkit-scrollbar-thumb:hover {
+  background: var(--idle-text);
+}
+
+/* ========================================
+   响应式调整
+======================================== */
+@media (max-width: 768px) {
+  #idle_container {
+    font-size: 13px;
+    padding: 0 4px;
+  }
+  
+  #idle_container > details > summary {
+    padding: 14px 16px;
+    font-size: 15px;
+  }
+  
+  #idle_container fieldset {
+    padding: 12px;
+  }
+  
+  #idle_container button {
+    padding: 7px 14px;
+    font-size: 12px;
+  }
+}
+
+/* ========================================
+   动画效果
+======================================== */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#idle_container details[open] > *:not(summary) {
+  animation: slideDown 0.3s ease-out;
+}
+
+/* ========================================
+   辅助类
+======================================== */
+.text-muted {
+  color: var(--idle-muted);
+}
+
+.text-primary {
+  color: var(--idle-primary);
+}
+
+.text-success {
+  color: var(--idle-success);
+}
+
+.text-danger {
+  color: var(--idle-danger);
+}
+
+.mb-0 { margin-bottom: 0 !important; }
+.mb-1 { margin-bottom: 4px !important; }
+.mb-2 { margin-bottom: 8px !important; }
+.mb-3 { margin-bottom: 12px !important; }
+
+.mt-0 { margin-top: 0 !important; }
+.mt-1 { margin-top: 4px !important; }
+.mt-2 { margin-top: 8px !important; }
+.mt-3 { margin-top: 12px !important; }

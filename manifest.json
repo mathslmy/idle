@@ -1,0 +1,12 @@
+{
+    "display_name": "Idle",
+    "loading_order": 6,
+    "requires": [],
+    "optional": [
+    ],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "宗",
+    "version": "1.0.0",
+    "homePage": "https://github.com/SillyTavern/SillyTavern"
+}

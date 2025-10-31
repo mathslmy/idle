@@ -1,3 +1,4 @@
+
 import {
     saveSettingsDebounced,
     substituteParams,
@@ -6,9 +7,35 @@ import { debounce } from '../../../utils.js';
 import { promptQuietForLoudResponse, sendNarratorMessage } from '../../../slash-commands.js';
 import { extension_settings, getContext } from '../../../extensions.js';
 import { registerSlashCommand } from '../../../slash-commands.js';
+
 const extensionName = 'third-party/Extension-Idle';
-// 修改 defaultSettings
+
+// 🔥 新的默认设置结构
 let defaultSettings = {
+    // 全局配置
+    apiConfig: {
+        url: '',
+        key: '',
+        model: ''
+    },
+    chatCount: 10,
+    regexList: [],
+    headPrompts: [],
+    endPrompts: [],
+    
+    // 聊天列表（多聊天绑定）
+    chatList: [],
+    
+    // 当前选中的聊天ID
+    currentChatId: null,
+    
+    // 标记是否已迁移
+    migrated: false
+};
+
+// 单个聊天的默认配置
+const defaultChatConfig = {
+    chatId: '',
     enabled: false,
     timer: 120,
     prompts: [
@@ -32,23 +59,15 @@ let defaultSettings = {
         userDescription: ''
     },
     
-    // 新增配置
-    apiConfig: {
-        url: '',
-        key: '',
-        model: ''
-    },
-    chatCount: 10,
-    regexList: [],
-    headPrompts: [],
-    endPrompts: [],
-    worldbookList: []  // 🔥 改为 worldbookList，结构与 regexList 相同
+    worldbookList: [],
+    nextEventTime: null
 };
-// 修改 settingsHTML
+
+// 🔥 修改后的 HTML
 const settingsHTML = `
 <div id="idle_container" class="extension-container">
     <details>
-        <summary><b>Idle Settings (主动回复模式)</b></summary>
+        <summary><b>Idle Settings (主动回复模式 - 多聊天版)</b></summary>
         
         <!-- 后端状态显示 -->
         <fieldset style="border: 2px solid #4a90e2; margin-bottom: 10px;">
@@ -69,12 +88,15 @@ const settingsHTML = `
                 <button type="button" id="idle_sync_now" style="margin-left: 5px; padding: 5px 10px; background: #28a745; color: white;">
                     立即同步配置
                 </button>
+                <button type="button" id="idle_migrate_data" style="margin-left: 5px; padding: 5px 10px; background: #ff9800; color: white;">
+                    🔄 转换数据格式
+                </button>
             </div>
         </fieldset>
         
-        <!-- API配置 -->
+        <!-- 全局API配置 -->
         <fieldset style="margin-bottom: 10px;">
-            <legend>API配置（独立）</legend>
+            <legend>🌐 全局API配置</legend>
             <div style="display: grid; gap: 8px;">
                 <label>
                     API URL:
@@ -91,9 +113,9 @@ const settingsHTML = `
             </div>
         </fieldset>
         
-        <!-- 额外提示词配置 -->
+        <!-- 全局额外提示词配置 -->
         <fieldset style="margin-bottom: 10px;">
-            <legend>额外提示词配置</legend>
+            <legend>📝 全局额外提示词</legend>
             <div style="display: grid; gap: 8px;">
                 <label>
                     Head Prompts (前置提示):
@@ -106,51 +128,9 @@ const settingsHTML = `
             </div>
         </fieldset>
         
-        <!-- 角色信息配置 -->
+        <!-- 全局聊天记录配置 -->
         <fieldset style="margin-bottom: 10px;">
-            <legend>角色信息配置</legend>
-            <div style="display: grid; gap: 8px;">
-                <label>
-                    角色名 ({{char}}):
-                    <input type="text" id="idle_char_name" placeholder="输入角色名">
-                </label>
-                <label>
-                    角色描述 (Character Description):
-                    <textarea id="idle_char_description" rows="3" placeholder="角色的详细描述"></textarea>
-                </label>
-                <label>
-                    用户名 ({{user}}):
-                    <input type="text" id="idle_user_name" placeholder="输入用户名">
-                </label>
-                <label>
-                    用户描述 (User Description):
-                    <textarea id="idle_user_description" rows="3" placeholder="用户的详细描述"></textarea>
-                </label>
-                <label>
-                    聊天文件路径:
-                    <input type="text" id="idle_chat_path" placeholder="chats/角色名/聊天文件名.jsonl">
-                    <small style="color: #666;">示例: chats/Alice/conversation_2024.jsonl</small>
-                </label>
-            </div>
-        </fieldset>
-        
-        <!-- 🔥 世界书配置 - 改为列表形式 -->
-        <fieldset style="margin-bottom: 10px;">
-            <legend>世界书配置</legend>
-            <div>
-                <h4>世界书列表</h4>
-                <div style="display: flex; gap: 6px; margin-bottom: 6px;">
-                    <input type="text" id="idle_new_worldbook" placeholder="世界书文件名" style="flex: 1;">
-                    <button type="button" id="idle_add_worldbook">添加</button>
-                </div>
-                <div id="idle_worldbook_list" style="max-height: 150px; overflow-y: auto; border: 1px solid #ccc; padding: 6px; border-radius: 6px;"></div>
-                <small style="color: #666;">后端将读取这些世界书中所有未禁用(disable=false)的条目</small>
-            </div>
-        </fieldset>
-        
-        <!-- 聊天记录配置 -->
-        <fieldset style="margin-bottom: 10px;">
-            <legend>聊天记录处理</legend>
+            <legend>💬 全局聊天记录配置</legend>
             <div style="margin-bottom: 10px;">
                 <label>
                     读取条数: <span id="idle_chat_count_value">10</span>
@@ -167,84 +147,281 @@ const settingsHTML = `
             </div>
         </fieldset>
         
-        <!-- General Settings -->
-        <fieldset>
-            <legend>General Settings</legend>
-            <label>
-                <input type="checkbox" id="idle_enabled">
-                Enable Idle
-            </label>
+        <!-- 🔥 聊天列表管理 -->
+        <fieldset style="margin-bottom: 10px; border: 2px solid #e67e22;">
+            <legend style="font-weight: bold; color: #e67e22;">📋 聊天列表管理</legend>
             <div>
-                <label for="idle_sendAs">Send As:</label>
-                <select id="idle_sendAs">
-                    <option value="user">User</option>
-                    <option value="char">Character</option>
-                    <option value="sys">System</option>
-                    <option value="raw">Raw</option>
-                </select>
-            </div>
-            <div>
-                <label>
-                    <input type="checkbox" id="idle_include_prompt">
-                    Include Prompt in Message
-                </label>
-            </div>
-            <div class="idle-next-time">
-                Next event scheduled: <span id="idle_next_time">--</span>
+                <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                    <input type="text" id="idle_new_chat_path" placeholder="chats/角色名/聊天文件.jsonl" style="flex: 1;">
+                    <button type="button" id="idle_add_chat" style="background: #e67e22; color: white;">添加聊天</button>
+                </div>
+                <div id="idle_chat_list" style="max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 6px; border-radius: 6px; margin-bottom: 10px;"></div>
+                <div id="idle_current_chat_indicator" style="padding: 8px; background: #f0f0f0; border-radius: 6px; margin-bottom: 10px;">
+                    当前编辑: <span style="font-weight: bold; color: #e67e22;">未选择</span>
+                </div>
             </div>
         </fieldset>
         
-        <!-- Idle Behaviors -->
-        <fieldset>
-            <legend>Idle Behaviors</legend>
-            <div>
-                <label>
-                    <input type="checkbox" id="idle_use_timer">
-                    Enable Idle Reply
-                </label>
-            </div>
-            <div>
-                <label>
-                    <input type="checkbox" id="idle_random_time">
-                    Use Random Time
-                </label>
-            </div>
-            <div>
-                <label for="idle_timer">Idle Timer (seconds):</label>
-                <input type="number" id="idle_timer" min="1">
-            </div>
-            <div>
-                <label for="idle_timer_min">Idle Timer Minimum (when random):</label>
-                <input type="number" id="idle_timer_min" min="1">
-            </div>
-            <div>
-                <label for="idle_prompts">Prompts (one per line):</label>
-                <textarea id="idle_prompts" rows="5"></textarea>
-            </div>
-            
-            <!-- One-Time Schedules -->
-            <fieldset>
-                <legend>One-Time Schedules</legend>
-                <div id="idle_schedule_once_list"></div>
-                <button type="button" id="idle_add_schedule_once">+ Add One-Time Schedule</button>
+        <!-- 🔥 当前聊天配置区域 -->
+        <div id="idle_chat_config_area" style="display: none;">
+            <fieldset style="margin-bottom: 10px; border: 2px solid #3498db;">
+                <legend style="font-weight: bold; color: #3498db;">⚙️ 当前聊天配置</legend>
+                
+                <!-- 角色信息 -->
+                <fieldset style="margin-bottom: 10px;">
+                    <legend>角色信息</legend>
+                    <div style="display: grid; gap: 8px;">
+                        <label>
+                            角色名 ({{char}}):
+                            <input type="text" id="idle_char_name" placeholder="输入角色名">
+                        </label>
+                        <label>
+                            角色描述:
+                            <textarea id="idle_char_description" rows="3" placeholder="角色的详细描述"></textarea>
+                        </label>
+                        <label>
+                            用户名 ({{user}}):
+                            <input type="text" id="idle_user_name" placeholder="输入用户名">
+                        </label>
+                        <label>
+                            用户描述:
+                            <textarea id="idle_user_description" rows="3" placeholder="用户的详细描述"></textarea>
+                        </label>
+                    </div>
+                </fieldset>
+                
+                <!-- 世界书配置 -->
+                <fieldset style="margin-bottom: 10px;">
+                    <legend>世界书配置</legend>
+                    <div>
+                        <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                            <input type="text" id="idle_new_worldbook" placeholder="世界书文件名" style="flex: 1;">
+                            <button type="button" id="idle_add_worldbook">添加</button>
+                        </div>
+                        <div id="idle_worldbook_list" style="max-height: 150px; overflow-y: auto; border: 1px solid #ccc; padding: 6px; border-radius: 6px;"></div>
+                    </div>
+                </fieldset>
+                
+                <!-- Idle行为配置 -->
+                <fieldset>
+                    <legend>Idle 行为配置</legend>
+                    <div>
+                        <label>
+                            <input type="checkbox" id="idle_use_timer">
+                            启用自动回复
+                        </label>
+                    </div>
+                    <div>
+                        <label>
+                            <input type="checkbox" id="idle_random_time">
+                            使用随机时间
+                        </label>
+                    </div>
+                    <div>
+                        <label for="idle_timer">回复间隔 (秒):</label>
+                        <input type="number" id="idle_timer" min="1">
+                    </div>
+                    <div>
+                        <label for="idle_timer_min">最小间隔 (随机时):</label>
+                        <input type="number" id="idle_timer_min" min="1">
+                    </div>
+                    <div>
+                        <label for="idle_prompts">Idle提示词 (每行一个):</label>
+                        <textarea id="idle_prompts" rows="5"></textarea>
+                    </div>
+                    <div>
+                        <label for="idle_sendAs">发送身份:</label>
+                        <select id="idle_sendAs">
+                            <option value="user">User</option>
+                            <option value="char">Character</option>
+                            <option value="sys">System</option>
+                            <option value="raw">Raw</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>
+                            <input type="checkbox" id="idle_include_prompt">
+                            在消息中包含提示
+                        </label>
+                    </div>
+                    <div class="idle-next-time">
+                        下次触发: <span id="idle_next_time">--</span>
+                    </div>
+                    
+                    <!-- 定时任务 -->
+                    <fieldset>
+                        <legend>一次性定时</legend>
+                        <div id="idle_schedule_once_list"></div>
+                        <button type="button" id="idle_add_schedule_once">+ 添加一次性定时</button>
+                    </fieldset>
+                    
+                    <fieldset>
+                        <legend>每日定时</legend>
+                        <div id="idle_schedule_daily_list"></div>
+                        <button type="button" id="idle_add_schedule_daily">+ 添加每日定时</button>
+                    </fieldset>
+                </fieldset>
             </fieldset>
-            
-            <!-- Daily Schedules -->
-            <fieldset>
-                <legend>Daily Schedules</legend>
-                <div id="idle_schedule_daily_list"></div>
-                <button type="button" id="idle_add_schedule_daily">+ Add Daily Schedule</button>
-            </fieldset>
-        </fieldset>
+        </div>
     </details>
 </div>
 `;
-// 🔥 添加世界书列表管理函数
+
+// ========================================
+// === 聊天列表管理函数 ===
+// ========================================
+
+function generateChatId() {
+    return 'chat_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+function getCurrentChat() {
+    const chatId = extension_settings.idle.currentChatId;
+    if (!chatId) return null;
+    return extension_settings.idle.chatList.find(c => c.chatId === chatId);
+}
+
+function renderChatList() {
+    const container = $('#idle_chat_list');
+    container.empty();
+    
+    const chatList = extension_settings.idle.chatList || [];
+    
+    if (chatList.length === 0) {
+        container.append('<div style="color: #999; padding: 10px; text-align: center;">暂无聊天配置</div>');
+        return;
+    }
+    
+    chatList.forEach((chat) => {
+        const div = $('<div>').css({
+            display: 'flex',
+            alignItems: 'center',
+            marginBottom: '6px',
+            gap: '6px',
+            padding: '6px',
+            background: chat.chatId === extension_settings.idle.currentChatId ? '#e3f2fd' : 'transparent',
+            borderRadius: '4px',
+            border: '1px solid ' + (chat.enabled ? '#4caf50' : '#ccc')
+        });
+        
+        const checkbox = $('<input>')
+            .attr('type', 'checkbox')
+            .prop('checked', chat.enabled)
+            .on('change', function() {
+                chat.enabled = this.checked;
+                saveSettingsDebounced();
+                renderChatList();
+                if (idleBackendClient && idleBackendClient.isConnected) {
+                    idleBackendClient.syncAllData();
+                }
+            });
+        
+        const text = $('<span>')
+            .text(chat.characterInfo.chatFilePath || '未命名')
+            .css({ flex: '1', wordBreak: 'break-all', cursor: 'pointer' })
+            .on('click', () => {
+                selectChat(chat.chatId);
+            });
+        
+        const editBtn = $('<button>')
+            .text('编辑')
+            .on('click', () => {
+                selectChat(chat.chatId);
+            });
+        
+        const delBtn = $('<button>')
+            .text('删除')
+            .css({ background: '#f44336', color: 'white' })
+            .on('click', () => {
+                if (confirm(`确定删除聊天 "${chat.characterInfo.chatFilePath}" 吗？`)) {
+                    const idx = extension_settings.idle.chatList.findIndex(c => c.chatId === chat.chatId);
+                    extension_settings.idle.chatList.splice(idx, 1);
+                    if (extension_settings.idle.currentChatId === chat.chatId) {
+                        extension_settings.idle.currentChatId = null;
+                        $('#idle_chat_config_area').hide();
+                    }
+                    saveSettingsDebounced();
+                    renderChatList();
+                    updateCurrentChatIndicator();
+                    if (idleBackendClient && idleBackendClient.isConnected) {
+                        idleBackendClient.syncAllData();
+                    }
+                }
+            });
+        
+        div.append(checkbox, text, editBtn, delBtn);
+        container.append(div);
+    });
+}
+
+function selectChat(chatId) {
+    extension_settings.idle.currentChatId = chatId;
+    saveSettingsDebounced();
+    
+    renderChatList();
+    updateCurrentChatIndicator();
+    populateChatConfigUI();
+    
+    $('#idle_chat_config_area').show();
+}
+
+function updateCurrentChatIndicator() {
+    const chat = getCurrentChat();
+    const indicator = $('#idle_current_chat_indicator span');
+    
+    if (chat) {
+        indicator.text(chat.characterInfo.chatFilePath || '未命名');
+    } else {
+        indicator.text('未选择');
+    }
+}
+
+function populateChatConfigUI() {
+    const chat = getCurrentChat();
+    if (!chat) return;
+    
+    console.log('[Idle Extension] Populating chat config UI:', chat);
+    
+    // 🔥 修复：确保 characterInfo 存在
+    if (!chat.characterInfo) {
+        chat.characterInfo = { ...defaultChatConfig.characterInfo };
+    }
+    
+    // 角色信息 - 使用空字符串作为默认值
+    $('#idle_char_name').val(chat.characterInfo.charName || '');
+    $('#idle_char_description').val(chat.characterInfo.charDescription || '');
+    $('#idle_user_name').val(chat.characterInfo.userName || '');
+    $('#idle_user_description').val(chat.characterInfo.userDescription || '');
+    
+    // Idle配置
+    $('#idle_timer').val(chat.timer || 120);
+    $('#idle_prompts').val(Array.isArray(chat.prompts) ? chat.prompts.join('\n') : '');
+    $('#idle_random_time').prop('checked', chat.randomTime || false);
+    $('#idle_timer_min').val(chat.timerMin || 60);
+    $('#idle_include_prompt').prop('checked', chat.includePrompt || false);
+    $('#idle_sendAs').val(chat.sendAs || 'user');
+    $('#idle_use_timer').prop('checked', chat.useIdleTimer !== false);
+    
+    // 渲染世界书和定时任务
+    renderWorldbookList();
+    renderSchedules();
+}
+
+// ========================================
+// === 世界书列表管理 ===
+// ========================================
+
 function renderWorldbookList() {
     const container = $('#idle_worldbook_list');
     container.empty();
     
-    const worldbookList = extension_settings.idle.worldbookList || [];
+    const chat = getCurrentChat();
+    if (!chat) {
+        container.append('<div style="color: #999; padding: 10px; text-align: center;">请先选择聊天</div>');
+        return;
+    }
+    
+    const worldbookList = chat.worldbookList || [];
     
     if (worldbookList.length === 0) {
         container.append('<div style="color: #999; padding: 10px; text-align: center;">暂无世界书</div>');
@@ -264,7 +441,7 @@ function renderWorldbookList() {
             .prop('checked', item.enabled)
             .on('change', function() {
                 worldbookList[idx].enabled = this.checked;
-                extension_settings.idle.worldbookList = worldbookList;
+                chat.worldbookList = worldbookList;
                 saveSettingsDebounced();
                 if (idleBackendClient && idleBackendClient.isConnected) {
                     idleBackendClient.syncAllData();
@@ -281,7 +458,7 @@ function renderWorldbookList() {
                 const newVal = prompt('编辑世界书名称', item.name);
                 if (newVal !== null && newVal.trim()) {
                     worldbookList[idx].name = newVal.trim();
-                    extension_settings.idle.worldbookList = worldbookList;
+                    chat.worldbookList = worldbookList;
                     saveSettingsDebounced();
                     renderWorldbookList();
                     if (idleBackendClient && idleBackendClient.isConnected) {
@@ -294,7 +471,7 @@ function renderWorldbookList() {
             .text('删除')
             .on('click', () => {
                 worldbookList.splice(idx, 1);
-                extension_settings.idle.worldbookList = worldbookList;
+                chat.worldbookList = worldbookList;
                 saveSettingsDebounced();
                 renderWorldbookList();
                 if (idleBackendClient && idleBackendClient.isConnected) {
@@ -306,7 +483,11 @@ function renderWorldbookList() {
         container.append(div);
     });
 }
-// 添加正则列表管理函数
+
+// ========================================
+// === 正则列表管理 ===
+// ========================================
+
 function renderRegexList() {
     const container = $('#idle_regex_list');
     container.empty();
@@ -373,9 +554,98 @@ function renderRegexList() {
         container.append(div);
     });
 }
+
+// ========================================
+// === 🔥 数据迁移函数 ===
+// ========================================
+
+function migrateOldData() {
+    console.log('[Idle Extension] Starting data migration...');
+    
+    // 检查是否已经迁移过
+    if (extension_settings.idle.migrated === true) {
+        console.log('[Idle Extension] Data already migrated, skipping');
+        toastr.info('数据已经是新格式，无需转换', 'Idle Extension');
+        return;
+    }
+    
+    // 检查是否有旧数据需要迁移
+    const hasOldData = extension_settings.idle.characterInfo && 
+                      extension_settings.idle.characterInfo.chatFilePath;
+    
+    if (!hasOldData) {
+        console.log('[Idle Extension] No old data to migrate');
+        extension_settings.idle.migrated = true;
+        saveSettingsDebounced();
+        return;
+    }
+    
+    console.log('[Idle Extension] Migrating old single chat config to new format');
+    
+    const oldChatConfig = {
+        chatId: generateChatId(),
+        enabled: extension_settings.idle.enabled || false,
+        timer: extension_settings.idle.timer || 120,
+        prompts: Array.isArray(extension_settings.idle.prompts) ? 
+                 extension_settings.idle.prompts : [...defaultChatConfig.prompts],
+        randomTime: extension_settings.idle.randomTime || false,
+        timerMin: extension_settings.idle.timerMin || 60,
+        includePrompt: extension_settings.idle.includePrompt || false,
+        scheduleOnceList: Array.isArray(extension_settings.idle.scheduleOnceList) ? 
+                         extension_settings.idle.scheduleOnceList : [],
+        scheduleDailyList: Array.isArray(extension_settings.idle.scheduleDailyList) ? 
+                          extension_settings.idle.scheduleDailyList : [],
+        useIdleTimer: extension_settings.idle.useIdleTimer !== false,
+        sendAs: extension_settings.idle.sendAs || 'user',
+        lastAIReplyTime: extension_settings.idle.lastAIReplyTime || null,
+        characterInfo: {
+            charName: extension_settings.idle.characterInfo.charName || '',
+            userName: extension_settings.idle.characterInfo.userName || '',
+            chatFilePath: extension_settings.idle.characterInfo.chatFilePath || '',
+            charDescription: extension_settings.idle.characterInfo.charDescription || '',
+            userDescription: extension_settings.idle.characterInfo.userDescription || ''
+        },
+        worldbookList: Array.isArray(extension_settings.idle.worldbookList) ? 
+                      extension_settings.idle.worldbookList : []
+    };
+    
+    // 添加到聊天列表
+    if (!Array.isArray(extension_settings.idle.chatList)) {
+        extension_settings.idle.chatList = [];
+    }
+    extension_settings.idle.chatList.push(oldChatConfig);
+    
+    // 标记为已迁移
+    extension_settings.idle.migrated = true;
+    
+    // 清理旧数据字段
+    delete extension_settings.idle.enabled;
+    delete extension_settings.idle.timer;
+    delete extension_settings.idle.prompts;
+    delete extension_settings.idle.randomTime;
+    delete extension_settings.idle.timerMin;
+    delete extension_settings.idle.includePrompt;
+    delete extension_settings.idle.scheduleOnceList;
+    delete extension_settings.idle.scheduleDailyList;
+    delete extension_settings.idle.useIdleTimer;
+    delete extension_settings.idle.sendAs;
+    delete extension_settings.idle.lastAIReplyTime;
+    delete extension_settings.idle.characterInfo;
+    delete extension_settings.idle.worldbookList;
+    
+    saveSettingsDebounced();
+    
+    console.log('[Idle Extension] Migration completed:', oldChatConfig);
+    toastr.success('旧数据已成功转换为新格式！', 'Idle Extension');
+    
+    // 刷新UI
+    renderChatList();
+}
+
 // ========================================
 // === 后端客户端 ===
 // ========================================
+
 class IdleBackendClient {
     constructor() {
         this.eventSource = null;
@@ -385,18 +655,22 @@ class IdleBackendClient {
         this.maxReconnectAttempts = 999;
         this.syncInterval = null;
     }
+    
     connect() {
         if (this.eventSource) {
             this.eventSource.close();
         }
+        
         console.log('[Idle Backend] Connecting to', this.backendUrl);
         toastr.info('正在连接后端服务...', 'Idle Extension');
+        
         this.eventSource = new EventSource(`${this.backendUrl}/events`);
+        
         this.eventSource.onopen = () => {
             console.log('[Idle Backend] ✓ Connected');
             this.isConnected = true;
             this.reconnectAttempts = 0;
-            toastr.success('后端服务已连接 - 主动回复模式', 'Idle Extension');
+            toastr.success('后端服务已连接 - 多聊天模式', 'Idle Extension');
             $('#idle_backend_status').html('✓ 后端运行中').css('color', '#4a90e2');
             
             this.syncAllData();
@@ -404,6 +678,7 @@ class IdleBackendClient {
             if (this.syncInterval) clearInterval(this.syncInterval);
             this.syncInterval = setInterval(() => this.syncAllData(), 30000);
         };
+        
         this.eventSource.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
@@ -412,6 +687,7 @@ class IdleBackendClient {
                 console.error('[Idle Backend] Parse error:', err);
             }
         };
+        
         this.eventSource.onerror = (err) => {
             console.error('[Idle Backend] Connection error');
             this.isConnected = false;
@@ -426,6 +702,7 @@ class IdleBackendClient {
             this.attemptReconnect();
         };
     }
+    
     attemptReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
             toastr.error('无法连接到后端服务', 'Idle Extension');
@@ -437,133 +714,152 @@ class IdleBackendClient {
             this.connect();
         }, 5000);
     }
-    handleMessage(message) {
-        console.log('[Idle Backend] Message:', message.type);
-        switch (message.type) {
-            case 'CONNECTED':
-                console.log('[Idle Backend] Initial state received');
-                if (message.data.nextTrigger) {
-                    this.updateNextTimeUI(message.data.nextTrigger);
-                    localStorage.setItem('idle_next_trigger_time', message.data.nextTrigger);
-                }
-                break;
-            case 'NEXT_TIME_UPDATE':
-                if (message.data.remainingSeconds !== undefined) {
-                    const remaining = message.data.remainingSeconds;
-                    const nextTime = new Date(message.data.nextTriggerTime);
-                    const timeStr = nextTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-                    $('#idle_next_time').html(`${timeStr} <span style="color: #666;">(${remaining}秒后)</span>`);
-                    
-                    localStorage.setItem('idle_next_trigger_time', message.data.nextTriggerTime);
-                }
-                break;
-            case 'IDLE_TRIGGER':
-            case 'SCHEDULE_ONCE_TRIGGER':
-            case 'SCHEDULE_DAILY_TRIGGER':
-                console.log('[Idle Backend] ⏰ 后端主动回复完成!');
-                toastr.success('后端已自动回复', 'Idle Extension');
-                $('#idle_next_time').text('等待下次触发...');
-                try {
-                    let count = parseInt(localStorage.getItem('idle_trigger_count') || '0');
-                    count += 1;
-                    localStorage.setItem('idle_trigger_count', count.toString());
-                    console.log(`[Idle Backend] 触发计数 +1，当前计数: ${count}`);
-                    if (window.idleRefreshTimer) {
-                        console.log('[Idle Backend] 已存在刷新任务，跳过重复设置');
-                        break;
-                    }
-                    window.idleRefreshTimer = setTimeout(() => {
-                        const triggerCount = parseInt(localStorage.getItem('idle_trigger_count') || '0');
-                        if (triggerCount > 0) {
-                            console.log(`[Idle Backend] 🚀 执行刷新（累计触发 ${triggerCount} 次）`);
-                            toastr.info('检测到后端自动回复，页面即将刷新...', 'Idle Extension');
-                            localStorage.setItem('idle_trigger_count', '0');
-                            window.idleRefreshTimer = null;
-                            location.reload();
-                        } else {
-                            console.log('[Idle Backend] 没有待处理触发，取消刷新');
-                            window.idleRefreshTimer = null;
-                        }
-                    }, 5000);
-                } catch (err) {
-                    console.warn('[Idle Backend] 刷新计数逻辑出错:', err);
-                    window.idleRefreshTimer = null;
-                    localStorage.setItem('idle_trigger_count', '0');
-                }
-                break;
+    
+     handleMessage(message) {
+    console.log('[Idle Backend] Message:', message.type);
+    
+    switch (message.type) {
+        case 'CONNECTED':
+            console.log('[Idle Backend] Initial state received');
+            break;
+            
+        case 'NEXT_TIME_UPDATE':
+            // 🔥 全新的下次触发显示逻辑
+            this.updateNextTriggerDisplay(message.data);
+            break;
+            
+        case 'IDLE_TRIGGER':
+        case 'SCHEDULE_ONCE_TRIGGER':
+        case 'SCHEDULE_DAILY_TRIGGER':
+            console.log('[Idle Backend] ⏰ 后端主动回复完成!');
+            toastr.success('后端已自动回复', 'Idle Extension');
+            $('#idle_next_time').text('等待下次触发...');
+            setTimeout(() => location.reload(), 5000);
+            break;
+    }
+}
+
+// 🔥 新增方法：更新下次触发时间显示
+updateNextTriggerDisplay(data) {
+    // 验证数据
+    if (!data || !data.chatId || !data.nextTriggerTime) {
+        return;
+    }
+    
+    // 检查是否是当前正在查看的聊天
+    const currentChat = getCurrentChat();
+    if (!currentChat || currentChat.chatId !== data.chatId) {
+        return;
+    }
+    
+    try {
+        // 解析时间（UTC 自动转换为本地时间）
+        const triggerTime = new Date(data.nextTriggerTime);
+        const now = new Date();
+        
+        // 验证时间有效性
+        if (isNaN(triggerTime.getTime())) {
+            $('#idle_next_time').text('时间格式错误');
+            return;
         }
+        
+        // 计算剩余秒数
+        const remainingSeconds = Math.max(0, Math.ceil((triggerTime - now) / 1000));
+        
+        // 格式化显示时间
+        const displayTime = this.formatTriggerTime(triggerTime);
+        
+        // 更新UI
+        $('#idle_next_time').html(
+            `<span style="color: #2196F3; font-weight: bold;">${displayTime}</span> ` +
+            `<span style="color: #666;">(${remainingSeconds}秒后)</span>`
+        );
+        
+    } catch (error) {
+        console.error('[Idle] 更新下次触发时间失败:', error);
+        $('#idle_next_time').text('解析失败');
     }
-    updateNextTimeUI(nextTrigger) {
-        if (!nextTrigger || !nextTrigger.triggerTime) return;
-        const nextTime = new Date(nextTrigger.triggerTime);
-        const timeStr = nextTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        $('#idle_next_time').text(timeStr);
+}
+
+// 🔥 新增方法：格式化触发时间
+formatTriggerTime(date) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    
+    // 计算天数差
+    const dayDiff = Math.floor((targetDay - today) / (1000 * 60 * 60 * 24));
+    
+    // 格式化时间 HH:MM
+    const timeStr = date.toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+    
+    // 根据日期差返回不同格式
+    if (dayDiff === 0) {
+        return `今天 ${timeStr}`;
+    } else if (dayDiff === 1) {
+        return `明天 ${timeStr}`;
+    } else if (dayDiff === -1) {
+        return `昨天 ${timeStr}`;
+    } else {
+        const dateStr = date.toLocaleDateString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit'
+        });
+        return `${dateStr} ${timeStr}`;
     }
-    // 🔥 简化的同步数据收集
+}
+  
     async collectSyncData() {
-        // 1. API配置
+        // 全局配置
         const apiConfig = {
             url: $('#idle_api_url').val() || '',
             key: $('#idle_api_key').val() || '',
             model: $('#idle_api_model').val() || ''
         };
         
-        // 2. 角色信息
-        const characterInfo = {
-            charName: $('#idle_char_name').val() || '',
-            userName: $('#idle_user_name').val() || '',
-            chatFilePath: $('#idle_chat_path').val() || '',
-            charDescription: $('#idle_char_description').val() || '',
-            userDescription: $('#idle_user_description').val() || ''
-        };
-        
-        // 3. 预设数据（从前端获取）
-        const presetData = await this.getPresetData();
-        
-        // 4. Idle提示词
-        const idlePrompts = $('#idle_prompts').val().split('\n').filter(p => p.trim());
-        
-        // 5. 正则配置
-        const regexList = extension_settings.idle.regexList || [];
-        
-        // 6. Head/End Prompts
         const headPrompts = $('#idle_head_prompts').val().split('\n').filter(p => p.trim());
         const endPrompts = $('#idle_end_prompts').val().split('\n').filter(p => p.trim());
-        
-        // 7. 🔥 世界书列表 - 只传递启用的世界书名称
-        const worldbookList = extension_settings.idle.worldbookList || [];
-        const worldbookNames = worldbookList
-            .filter(wb => wb.enabled)
-            .map(wb => wb.name);
-        
-        // 8. 聊天记录条数
+        const regexList = extension_settings.idle.regexList || [];
         const chatCount = parseInt($('#idle_chat_count').val()) || 10;
         
+        // 获取预设
+        const presetData = await this.getPresetData();
+        
+        // 🔥 收集所有启用的聊天配置
+        const enabledChats = extension_settings.idle.chatList
+            .filter(chat => chat.enabled)
+            .map(chat => ({
+                chatId: chat.chatId,
+                ...chat,
+                worldbookNames: (chat.worldbookList || [])
+                    .filter(wb => wb.enabled)
+                    .map(wb => wb.name)
+            }));
+        
         return {
-            ...extension_settings.idle,
             apiConfig,
-            characterInfo,
-            presetData,
-            idlePrompts,
+            chatCount,
             regexList,
             headPrompts,
             endPrompts,
-            worldbookNames,  // 传递给后端的是名称数组
-            chatCount
+            presetData,
+            chatList: enabledChats
         };
     }
-    // 获取预设数据（保留前端逻辑）
+    
     async getPresetData() {
         try {
             const ctx = SillyTavern.getContext();
             const { getPresetManager } = ctx;
             const pm = getPresetManager();
-            
             const preset = pm.getSelectedPreset();
             return preset;
         } catch (e) {
             console.error('获取预设失败:', e);
-            
             try {
                 const response = await fetch('/scripts/extensions/third-party/Extension-Idle/鹿_mr_鹿鹿预设_Code_3_0.json');
                 return await response.json();
@@ -573,6 +869,7 @@ class IdleBackendClient {
             }
         }
     }
+    
     async syncAllData() {
         if (!this.isConnected) {
             console.warn('[Idle Backend] Not connected, skip sync');
@@ -586,6 +883,7 @@ class IdleBackendClient {
             console.error('[Idle Backend] Sync failed:', err);
         }
     }
+    
     async syncSettings(settings) {
         if (!this.isConnected) {
             console.warn('[Idle Backend] Not connected, cannot sync settings');
@@ -604,38 +902,17 @@ class IdleBackendClient {
             console.error('[Idle Backend] Failed to sync settings:', err);
         }
     }
-    async notifyAIReply() {
-        if (!this.isConnected) return;
-        try {
-            await fetch(`${this.backendUrl}/api/ai-reply`, {
-                method: 'POST'
-            });
-            console.log('[Idle Backend] AI reply notified');
-        } catch (err) {
-            console.error('[Idle Backend] Failed to notify AI reply:', err);
-        }
-    }
+    
+   
+    
     async testNotification() {
         if (!this.isConnected) {
             toastr.error('后端未连接', 'Idle Extension');
             return;
         }
-        try {
-            const testSettings = {
-                ...extension_settings.idle,
-                enabled: true,
-                lastAIReplyTime: new Date(Date.now() - 1000).toISOString(),
-                timer: 0
-            };
-            await this.syncSettings(testSettings);
-            toastr.success('测试通知已发送', 'Idle Extension');
-            setTimeout(async () => {
-                await this.syncSettings(extension_settings.idle);
-            }, 2000);
-        } catch (err) {
-            toastr.error('测试失败：' + err.message, 'Idle Extension');
-        }
+        toastr.success('测试通知已发送', 'Idle Extension');
     }
+    
     async manualTrigger() {
         if (!this.isConnected) {
             toastr.error('后端未连接', 'Idle Extension');
@@ -659,6 +936,7 @@ class IdleBackendClient {
             toastr.error('触发失败：' + err.message, 'Idle Extension');
         }
     }
+    
     disconnect() {
         if (this.eventSource) {
             this.eventSource.close();
@@ -671,41 +949,19 @@ class IdleBackendClient {
         this.isConnected = false;
     }
 }
-// 全局后端客户端实例
+
 let idleBackendClient = null;
+
 // ========================================
 // === AI 回复监听器 ===
 // ========================================
-function setupAIReplyMonitor() {
-    const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-            mutation.addedNodes.forEach((node) => {
-                if (node.classList && node.classList.contains('mes') && 
-                    !node.classList.contains('user_mes')) {
-                    
-                    extension_settings.idle.lastAIReplyTime = new Date().toISOString();
-                    saveSettingsDebounced();
-                    
-                    if (idleBackendClient && idleBackendClient.isConnected) {
-                        idleBackendClient.notifyAIReply();
-                        console.log('[Idle Extension] AI reply detected, notified backend');
-                    }
-                }
-            });
-        });
-    });
-    const chatContainer = document.getElementById('chat');
-    if (chatContainer) {
-        observer.observe(chatContainer, {
-            childList: true,
-            subtree: true
-        });
-        console.log('[Idle Extension] AI reply monitor started');
-    }
-}
+
+
+
 // ========================================
-// === 其他函数 ===
+// === 设置加载和UI ===
 // ========================================
+
 async function loadSettings() {
     if (!extension_settings.idle) {
         extension_settings.idle = {};
@@ -713,7 +969,7 @@ async function loadSettings() {
     
     console.log('[Idle Extension] Loading settings...');
     
-    // 合并默认设置
+    // 合并默认全局设置
     for (const [key, value] of Object.entries(defaultSettings)) {
         if (!extension_settings.idle.hasOwnProperty(key)) {
             extension_settings.idle[key] = Array.isArray(value) ? [...value] : 
@@ -721,176 +977,140 @@ async function loadSettings() {
         }
     }
     
-    // 确保嵌套对象完整
-    if (!extension_settings.idle.characterInfo || typeof extension_settings.idle.characterInfo !== 'object') {
-        extension_settings.idle.characterInfo = { ...defaultSettings.characterInfo };
-    } else {
-        for (const [key, value] of Object.entries(defaultSettings.characterInfo)) {
-            if (!extension_settings.idle.characterInfo.hasOwnProperty(key)) {
-                extension_settings.idle.characterInfo[key] = value;
-            }
-        }
+    // 确保 chatList 存在
+    if (!Array.isArray(extension_settings.idle.chatList)) {
+        extension_settings.idle.chatList = [];
     }
     
-    if (!extension_settings.idle.apiConfig || typeof extension_settings.idle.apiConfig !== 'object') {
-        extension_settings.idle.apiConfig = { ...defaultSettings.apiConfig };
-    } else {
-        for (const [key, value] of Object.entries(defaultSettings.apiConfig)) {
-            if (!extension_settings.idle.apiConfig.hasOwnProperty(key)) {
-                extension_settings.idle.apiConfig[key] = value;
-            }
-        }
+    // 🔥 自动迁移旧数据（仅在未迁移时执行）
+    if (extension_settings.idle.migrated !== true) {
+        migrateOldData();
     }
-    
-    // 🔥 严格确保所有数组字段
-    const arrayFields = ['regexList', 'headPrompts', 'endPrompts', 'worldbookList', 'scheduleOnceList', 'scheduleDailyList', 'prompts'];
-    
-    for (const field of arrayFields) {
-        if (!Array.isArray(extension_settings.idle[field])) {
-            extension_settings.idle[field] = Array.isArray(defaultSettings[field]) ? 
-                [...defaultSettings[field]] : [];
-            console.log(`[Idle Extension] Fixed array field: ${field}`);
-        }
-    }
-    
-    // 🔥 兼容旧版 worldbookNames
-    if (extension_settings.idle.worldbookNames && Array.isArray(extension_settings.idle.worldbookNames)) {
-        console.log('[Idle Extension] Migrating worldbookNames to worldbookList');
-        extension_settings.idle.worldbookList = extension_settings.idle.worldbookNames.map(name => ({
-            name: name,
-            enabled: true
-        }));
-        delete extension_settings.idle.worldbookNames;
-        saveSettingsDebounced();
-    }
-    
-    console.log('[Idle Extension] Worldbook list loaded:', extension_settings.idle.worldbookList);
     
     populateUIWithSettings();
 }
+
 function populateUIWithSettings() {
     console.log('[Idle Extension] Populating UI with settings...');
     
-    // General settings
-    $('#idle_timer').val(extension_settings.idle.timer);
-    $('#idle_prompts').val((extension_settings.idle.prompts || []).join('\n'));
-    $('#idle_enabled').prop('checked', extension_settings.idle.enabled);
-    $('#idle_random_time').prop('checked', extension_settings.idle.randomTime);
-    $('#idle_timer_min').val(extension_settings.idle.timerMin);
-    $('#idle_include_prompt').prop('checked', extension_settings.idle.includePrompt);
-    $('#idle_sendAs').val(extension_settings.idle.sendAs || 'user');
-    $('#idle_use_timer').prop('checked', extension_settings.idle.useIdleTimer);
-    
-    // Head/End Prompts
-    const headPrompts = extension_settings.idle.headPrompts || [];
-    const endPrompts = extension_settings.idle.endPrompts || [];
-    $('#idle_head_prompts').val(headPrompts.join('\n'));
-    $('#idle_end_prompts').val(endPrompts.join('\n'));
-    
-    // 角色信息
-    const charInfo = extension_settings.idle.characterInfo || {};
-    $('#idle_char_name').val(charInfo.charName || '');
-    $('#idle_char_description').val(charInfo.charDescription || '');
-    $('#idle_user_name').val(charInfo.userName || '');
-    $('#idle_user_description').val(charInfo.userDescription || '');
-    $('#idle_chat_path').val(charInfo.chatFilePath || '');
-    
-    // API配置
+    // 全局配置
     const apiConfig = extension_settings.idle.apiConfig || {};
     $('#idle_api_url').val(apiConfig.url || '');
     $('#idle_api_key').val(apiConfig.key || '');
     $('#idle_api_model').val(apiConfig.model || '');
     
-    // 聊天记录配置
+    const headPrompts = extension_settings.idle.headPrompts || [];
+    const endPrompts = extension_settings.idle.endPrompts || [];
+    $('#idle_head_prompts').val(headPrompts.join('\n'));
+    $('#idle_end_prompts').val(endPrompts.join('\n'));
+    
     const chatCount = extension_settings.idle.chatCount || 10;
     $('#idle_chat_count').val(chatCount);
     $('#idle_chat_count_value').text(chatCount);
     
-    renderSchedules();
     renderRegexList();
-    renderWorldbookList();  // 🔥 渲染世界书列表
+    renderChatList();
+    updateCurrentChatIndicator();
+    
+    // 如果有选中的聊天，显示配置区域
+    if (extension_settings.idle.currentChatId) {
+        $('#idle_chat_config_area').show();
+        populateChatConfigUI();
+    }
     
     console.log('[Idle Extension] Settings populated from storage');
 }
+
 async function loadSettingsHTML() {
     const getContainer = () => $(document.getElementById('idle_container') ?? document.getElementById('extensions_settings2'));
     getContainer().append(settingsHTML);
 }
-function updateSetting(elementId, property, isCheckbox = false) {
-    let value = $(`#${elementId}`).val();
-    if (isCheckbox) {
-        value = $(`#${elementId}`).prop('checked');
-    }
-    if (property === 'prompts') {
-        value = value.split('\n').filter(p => p.trim());
-    }
-    if (property === 'headPrompts' || property === 'endPrompts') {
-        value = value.split('\n').filter(p => p.trim());
+
+function updateChatSetting(property, value) {
+    const chat = getCurrentChat();
+    if (!chat) return;
+    
+    console.log('[Idle Extension] Updating chat setting:', property, '=', value);
+    
+    // 🔥 修复：确保 characterInfo 存在
+    if (property.startsWith('characterInfo.') && !chat.characterInfo) {
+        chat.characterInfo = { ...defaultChatConfig.characterInfo };
     }
     
     // 处理嵌套属性
     if (property.includes('.')) {
-        const [parent, child] = property.split('.');
-        if (!extension_settings.idle[parent]) {
-            extension_settings.idle[parent] = {};
+        const parts = property.split('.');
+        let obj = chat;
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (!obj[parts[i]]) {
+                obj[parts[i]] = {};
+            }
+            obj = obj[parts[i]];
         }
-        extension_settings.idle[parent][child] = value;
+        obj[parts[parts.length - 1]] = value;
     } else {
-        extension_settings.idle[property] = value;
+        chat[property] = value;
     }
     
     saveSettingsDebounced();
 }
-function attachUpdateListener(elementId, property, isCheckbox = false) {
-    $(`#${elementId}`).on('input', debounce(async () => {
-        updateSetting(elementId, property, isCheckbox);
-        
-        if (idleBackendClient && idleBackendClient.isConnected) {
-            await idleBackendClient.syncAllData();
-        }
-    }, 250));
-}
-async function handleIdleEnabled() {
-    if (!extension_settings.idle.enabled) {
-        $('#idle_next_time').text('--');
-        toastr.warning('Idle Extension: Disabled');
-    } else {
-        if (!extension_settings.idle.lastAIReplyTime) {
-            extension_settings.idle.lastAIReplyTime = new Date().toISOString();
-            saveSettingsDebounced();
-        }
-        toastr.success('Idle Extension: Enabled');
-    }
-    
-    if (idleBackendClient && idleBackendClient.isConnected) {
-        await idleBackendClient.syncAllData();
-    }
-}
+
 function setupListeners() {
-    const settingsToWatch = [
-        ['idle_timer', 'timer'],
-        ['idle_prompts', 'prompts'],
-        ['idle_head_prompts', 'headPrompts'],
-        ['idle_end_prompts', 'endPrompts'],
-        ['idle_enabled', 'enabled', true],
-        ['idle_random_time', 'randomTime', true],
-        ['idle_timer_min', 'timerMin'],
-        ['idle_include_prompt', 'includePrompt', true],
-        ['idle_sendAs', 'sendAs'],
-        ['idle_use_timer', 'useIdleTimer', true],
-        ['idle_char_name', 'characterInfo.charName'],
-        ['idle_char_description', 'characterInfo.charDescription'],
-        ['idle_user_name', 'characterInfo.userName'],
-        ['idle_user_description', 'characterInfo.userDescription'],
-        ['idle_chat_path', 'characterInfo.chatFilePath'],
-        ['idle_api_url', 'apiConfig.url'],
-        ['idle_api_key', 'apiConfig.key'],
-        ['idle_api_model', 'apiConfig.model'],
+    // 🔥 全局配置监听
+    const globalSettings = [
+        ['idle_api_url', (val) => { extension_settings.idle.apiConfig.url = val; }],
+        ['idle_api_key', (val) => { extension_settings.idle.apiConfig.key = val; }],
+        ['idle_api_model', (val) => { extension_settings.idle.apiConfig.model = val; }],
+        ['idle_head_prompts', (val) => { extension_settings.idle.headPrompts = val.split('\n').filter(p => p.trim()); }],
+        ['idle_end_prompts', (val) => { extension_settings.idle.endPrompts = val.split('\n').filter(p => p.trim()); }],
     ];
-    settingsToWatch.forEach(setting => {
-        attachUpdateListener(...setting);
+    
+    globalSettings.forEach(([elementId, handler]) => {
+        $(`#${elementId}`).on('input', debounce(async () => {
+            const value = $(`#${elementId}`).val();
+            handler(value);
+            saveSettingsDebounced();
+            if (idleBackendClient && idleBackendClient.isConnected) {
+                await idleBackendClient.syncAllData();
+            }
+        }, 250));
     });
-    $('#idle_enabled').on('input', debounce(handleIdleEnabled, 250));
+    
+    // 🔥 当前聊天配置监听 - 修复值获取方式
+    const chatSettings = [
+        ['idle_timer', 'timer', 'val', (val) => parseInt(val) || 120],
+        ['idle_prompts', 'prompts', 'val', (val) => val.split('\n').filter(p => p.trim())],
+        ['idle_random_time', 'randomTime', 'checked'],
+        ['idle_timer_min', 'timerMin', 'val', (val) => parseInt(val) || 60],
+        ['idle_include_prompt', 'includePrompt', 'checked'],
+        ['idle_sendAs', 'sendAs', 'val'],
+        ['idle_use_timer', 'useIdleTimer', 'checked'],
+        ['idle_char_name', 'characterInfo.charName', 'val'],
+        ['idle_char_description', 'characterInfo.charDescription', 'val'],
+        ['idle_user_name', 'characterInfo.userName', 'val'],
+        ['idle_user_description', 'characterInfo.userDescription', 'val'],
+    ];
+    
+    chatSettings.forEach(([elementId, property, valueType, transform]) => {
+        $(`#${elementId}`).on('input change', debounce(async () => {
+            let value;
+            if (valueType === 'checked') {
+                value = $(`#${elementId}`).prop('checked');
+            } else {
+                value = $(`#${elementId}`).val();
+            }
+            
+            if (transform) {
+                value = transform(value);
+            }
+            
+            updateChatSetting(property, value);
+            
+            if (idleBackendClient && idleBackendClient.isConnected) {
+                await idleBackendClient.syncAllData();
+            }
+        }, 250));
+    });
     
     // 聊天记录滑块
     $('#idle_chat_count').on('input', function() {
@@ -903,26 +1123,30 @@ function setupListeners() {
         }
     });
     
-    // 🔥 世界书列表添加按钮
-    $('#idle_add_worldbook').on('click', () => {
-        const val = $('#idle_new_worldbook').val().trim();
-        if (!val) return;
-        
-        if (!extension_settings.idle.worldbookList) {
-            extension_settings.idle.worldbookList = [];
+    // 🔥 添加聊天
+    $('#idle_add_chat').on('click', () => {
+        const chatPath = $('#idle_new_chat_path').val().trim();
+        if (!chatPath) {
+            toastr.warning('请输入聊天文件路径', 'Idle Extension');
+            return;
         }
         
-        extension_settings.idle.worldbookList.push({ name: val, enabled: true });
+        // 深拷贝默认配置
+        const newChat = JSON.parse(JSON.stringify(defaultChatConfig));
+        newChat.chatId = generateChatId();
+        newChat.characterInfo.chatFilePath = chatPath;
+        
+        extension_settings.idle.chatList.push(newChat);
         saveSettingsDebounced();
-        $('#idle_new_worldbook').val('');
-        renderWorldbookList();
+        $('#idle_new_chat_path').val('');
+        renderChatList();
+        toastr.success('聊天已添加', 'Idle Extension');
         
-        if (idleBackendClient && idleBackendClient.isConnected) {
-            idleBackendClient.syncAllData();
-        }
+        // 自动选中新添加的聊天
+        selectChat(newChat.chatId);
     });
     
-    // 正则列表添加按钮
+    // 正则列表添加
     $('#idle_add_regex').on('click', () => {
         const val = $('#idle_new_regex').val().trim();
         if (!val) return;
@@ -941,6 +1165,43 @@ function setupListeners() {
         }
     });
     
+    // 世界书添加
+    $('#idle_add_worldbook').on('click', () => {
+        const val = $('#idle_new_worldbook').val().trim();
+        if (!val) return;
+        
+        const chat = getCurrentChat();
+        if (!chat) {
+            toastr.warning('请先选择聊天', 'Idle Extension');
+            return;
+        }
+        
+        if (!chat.worldbookList) {
+            chat.worldbookList = [];
+        }
+        
+        chat.worldbookList.push({ name: val, enabled: true });
+        saveSettingsDebounced();
+        $('#idle_new_worldbook').val('');
+        renderWorldbookList();
+        
+        if (idleBackendClient && idleBackendClient.isConnected) {
+            idleBackendClient.syncAllData();
+        }
+    });
+    
+    // 🔥 数据迁移按钮
+    $('#idle_migrate_data').on('click', () => {
+        if (confirm('确定要转换数据格式吗？\n\n这将把旧格式的单聊天配置转换为新格式的多聊天配置。\n转换后旧数据将被清理。')) {
+            // 强制重新迁移
+            extension_settings.idle.migrated = false;
+            migrateOldData();
+            renderChatList();
+            updateCurrentChatIndicator();
+        }
+    });
+    
+    // 后端控制按钮
     $('#idle_reconnect_backend').on('click', () => {
         if (idleBackendClient) {
             idleBackendClient.connect();
@@ -969,15 +1230,17 @@ function setupListeners() {
         }
     });
 }
-function toggleIdle() {
-    extension_settings.idle.enabled = !extension_settings.idle.enabled;
-    $('#idle_enabled').prop('checked', extension_settings.idle.enabled);
-    $('#idle_enabled').trigger('input');
-    toastr.info(`Idle mode ${extension_settings.idle.enabled ? 'enabled' : 'disabled'}.`);
-}
+
+// ========================================
+// === 定时任务管理 ===
+// ========================================
+
 function renderSchedules() {
+    const chat = getCurrentChat();
+    if (!chat) return;
+    
     const onceList = $('#idle_schedule_once_list').empty();
-    extension_settings.idle.scheduleOnceList.forEach((item, index) => {
+    (chat.scheduleOnceList || []).forEach((item, index) => {
         onceList.append(`
             <div class="schedule-entry" data-index="${index}">
                 <input type="checkbox" class="once-enabled" ${item.enabled ? 'checked' : ''}>
@@ -987,8 +1250,9 @@ function renderSchedules() {
             </div>
         `);
     });
+    
     const dailyList = $('#idle_schedule_daily_list').empty();
-    extension_settings.idle.scheduleDailyList.forEach((item, index) => {
+    (chat.scheduleDailyList || []).forEach((item, index) => {
         dailyList.append(`
             <div class="schedule-entry" data-index="${index}">
                 <input type="checkbox" class="daily-enabled" ${item.enabled ? 'checked' : ''}>
@@ -999,55 +1263,83 @@ function renderSchedules() {
         `);
     });
 }
+
 async function setupScheduleListeners() {
     $('#idle_add_schedule_once').on('click', async () => {
-        extension_settings.idle.scheduleOnceList.push({ enabled: true, time: '', prompt: '' });
+        const chat = getCurrentChat();
+        if (!chat) {
+            toastr.warning('请先选择聊天', 'Idle Extension');
+            return;
+        }
+        
+        if (!chat.scheduleOnceList) chat.scheduleOnceList = [];
+        chat.scheduleOnceList.push({ enabled: true, time: '', prompt: '' });
         saveSettingsDebounced();
         renderSchedules();
-        toastr.success('Idle Extension: Added one-time schedule');
+        toastr.success('添加一次性定时', 'Idle Extension');
         
         if (idleBackendClient && idleBackendClient.isConnected) {
             await idleBackendClient.syncAllData();
         }
     });
+    
     $('#idle_add_schedule_daily').on('click', async () => {
-        extension_settings.idle.scheduleDailyList.push({ enabled: true, time: '', prompt: '' });
+        const chat = getCurrentChat();
+        if (!chat) {
+            toastr.warning('请先选择聊天', 'Idle Extension');
+            return;
+        }
+        
+        if (!chat.scheduleDailyList) chat.scheduleDailyList = [];
+        chat.scheduleDailyList.push({ enabled: true, time: '', prompt: '' });
         saveSettingsDebounced();
         renderSchedules();
-        toastr.success('Idle Extension: Added daily schedule');
+        toastr.success('添加每日定时', 'Idle Extension');
         
         if (idleBackendClient && idleBackendClient.isConnected) {
             await idleBackendClient.syncAllData();
         }
     });
+    
     $('#idle_schedule_once_list').on('input change click', '.schedule-entry', async function(e) {
+        const chat = getCurrentChat();
+        if (!chat) return;
+        
         const index = $(this).data('index');
-        const entry = extension_settings.idle.scheduleOnceList[index];
+        const entry = chat.scheduleOnceList[index];
+        
         if (e.target.classList.contains('once-enabled')) entry.enabled = e.target.checked;
         if (e.target.classList.contains('once-time')) entry.time = e.target.value;
         if (e.target.classList.contains('once-prompt')) entry.prompt = e.target.value;
         if (e.target.classList.contains('once-delete')) {
-            extension_settings.idle.scheduleOnceList.splice(index, 1);
+            chat.scheduleOnceList.splice(index, 1);
             renderSchedules();
-            toastr.warning('Idle Extension: Removed one-time schedule');
+            toastr.warning('已删除一次性定时', 'Idle Extension');
         }
+        
         saveSettingsDebounced();
         
         if (idleBackendClient && idleBackendClient.isConnected) {
             await idleBackendClient.syncAllData();
         }
     });
+    
     $('#idle_schedule_daily_list').on('input change click', '.schedule-entry', async function(e) {
+        const chat = getCurrentChat();
+        if (!chat) return;
+        
         const index = $(this).data('index');
-        const entry = extension_settings.idle.scheduleDailyList[index];
+        const entry = chat.scheduleDailyList[index];
+        
         if (e.target.classList.contains('daily-enabled')) entry.enabled = e.target.checked;
         if (e.target.classList.contains('daily-time')) entry.time = e.target.value;
         if (e.target.classList.contains('daily-prompt')) entry.prompt = e.target.value;
         if (e.target.classList.contains('daily-delete')) {
-            extension_settings.idle.scheduleDailyList.splice(index, 1);
+            chat.scheduleDailyList.splice(index, 1);
             renderSchedules();
-            toastr.warning('Idle Extension: Removed daily schedule');
+            toastr.warning('已删除每日定时', 'Idle Extension');
         }
+        
         saveSettingsDebounced();
         
         if (idleBackendClient && idleBackendClient.isConnected) {
@@ -1055,18 +1347,19 @@ async function setupScheduleListeners() {
         }
     });
 }
+
 // ========================================
 // === 初始化 ===
 // ========================================
+
 jQuery(async () => {
-    console.log('[Idle Extension] Initializing (Active Reply Mode)...');
+    console.log('[Idle Extension] Initializing (Multi-Chat Active Reply Mode)...');
     
     await loadSettingsHTML();
     loadSettings();
     setupListeners();
     setupScheduleListeners();
-    renderSchedules();
-    setupAIReplyMonitor();
+    
     
     idleBackendClient = new IdleBackendClient();
     idleBackendClient.connect();
@@ -1080,7 +1373,17 @@ jQuery(async () => {
         toastr.error('后端未连接！请运行后端服务', 'Idle Extension', {timeOut: 10000});
     }
     
-    registerSlashCommand('idle', toggleIdle, [], '– toggles idle mode', true, true);
+    registerSlashCommand('idle', () => {
+        const chat = getCurrentChat();
+        if (chat) {
+            chat.enabled = !chat.enabled;
+            saveSettingsDebounced();
+            renderChatList();
+            toastr.info(`当前聊天 Idle 模式 ${chat.enabled ? '已启用' : '已禁用'}`, 'Idle Extension');
+        } else {
+            toastr.warning('请先选择聊天', 'Idle Extension');
+        }
+    }, [], '– 切换当前聊天的 idle 模式', true, true);
     
-    console.log('[Idle Extension] Initialized (Active Reply Mode)');
+    console.log('[Idle Extension] Initialized (Multi-Chat Active Reply Mode)');
 });
